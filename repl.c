@@ -102,9 +102,17 @@ const uint32_t ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE;
 const uint32_t TABLE_MAX_ROWS = ROWS_PER_PAGE * TABLE_MAX_PAGES;
 
 typedef struct {
-    uint32_t num_rows;
+    int file_descriptor;
+    uint32_t file_length;
     void* pages[TABLE_MAX_PAGES];
+} Pager;
+
+
+typedef struct {
+    uint32_t num_rows;
+    Pager* pager;
 } Table;
+
 
 void print_row(Row* row) {
     printf("(%d, %s, %s)\n", row->id, row->username, row->email);
@@ -243,9 +251,41 @@ Execute_Result execute_statement(Statement* statement, Table* table) {
     }
 }
 
-Table* new_table() {
+Pager* pager_open(const char* filename) {
+
+    int fd = open(filename,
+                  O_RDWR |  // Read/Write mode
+                  O_CREAT,  // create file if it doesnt exist
+                  S_IWUSR | // user write permission
+                  S_IRUSR   // user read permission
+                  );
+    if (fd == -1) {
+        printf("Unable to open file\n");
+        exit(EXIT_FAILURE);
+    }
+
+    off_t file_length = lseek(fd, 0, SEEK_END);
+
+    Pager* pager = malloc(sizeof(Pager));
+    pager->file_descriptor = fd;
+    pager->file_length = file_length;
+
+    for(uint32_t i = 0; i < TABLE_MAX_PAGES; i++) {
+        pager->pages[i] = NULL;
+    }
+
+    return pager;
+}
+
+
+Table* db_open(const char* filename) {
+
+    Pager* pager = pager_open(filename);
+    uint32_t num_rows = pager->file_length / ROW_SIZE;
+
     Table* table = (Table*)malloc(sizeof(Table));
-    table->num_rows = 0;
+    table->pager = pager;
+    table->num_rows = num_rows;
 
     for (uint32_t i = 0; i < TABLE_MAX_PAGES; i++) {
         table->pages[i] = NULL;
